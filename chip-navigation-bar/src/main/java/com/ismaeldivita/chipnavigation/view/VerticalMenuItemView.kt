@@ -1,71 +1,106 @@
 package com.ismaeldivita.chipnavigation.view
 
+import android.animation.Animator
 import android.animation.ObjectAnimator
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
+import android.util.AttributeSet
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-import android.widget.ImageView
 import android.widget.TextView
 import com.ismaeldivita.chipnavigation.R
 import com.ismaeldivita.chipnavigation.model.MenuItem
-import com.ismaeldivita.chipnavigation.util.onEndListener
 import com.ismaeldivita.chipnavigation.util.setColorStateListAnimator
 import com.ismaeldivita.chipnavigation.util.setCustomRipple
 import com.ismaeldivita.chipnavigation.util.updateLayoutParams
 
-internal class VerticalMenuItemView(context: Context) : MenuItemView(context) {
+internal class VerticalMenuItemView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null
+) : MenuItemView(context, attrs) {
 
     private val title by lazy { findViewById<TextView>(R.id.cbn_item_title) }
-    private val icon by lazy { findViewById<ImageView>(R.id.cnb_item_icon) }
+    private val icon by lazy { findViewById<BadgeImageView>(R.id.cnb_item_icon) }
+    private val countLabel by lazy { findViewById<TextView>(R.id.cbn_item_notification_count) }
     private val container by lazy { findViewById<View>(R.id.cbn_item_internal_container) }
     private val containerBackground = GradientDrawable()
     private val containerForeground = GradientDrawable()
     private val doubleSpace = resources.getDimension(R.dimen.cnb_double_space).toInt()
+    private val originalTypeFace: Typeface
+    private var badgeCount = -1
+    private var radius = 0f
 
     private companion object {
         private const val BACKGROUND_CORNER_ANIMATION_DURATION: Long = 250
+        private const val BULLET = '\u2B24'
     }
 
     init {
         View.inflate(getContext(), R.layout.cnb_vertical_menu_item, this)
         layoutParams = LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+        originalTypeFace = countLabel.typeface
     }
 
     override fun bind(item: MenuItem) {
         id = item.id
         isEnabled = item.enabled
+        radius = item.menuStyle.radius
 
+        item.menuStyle.textAppearance?.let(title::setTextAppearance)
         title.text = item.title
         title.setColorStateListAnimator(
             color = item.textColor,
-            unselectedColor = item.unselectedColor,
-            disabledColor = item.disabledColor
+            unselectedColor = item.menuStyle.unselectedColor
         )
 
+        item.menuStyle.textAppearance?.let(countLabel::setTextAppearance)
+        countLabel.setColorStateListAnimator(
+            color = item.textColor,
+            unselectedColor = item.menuStyle.unselectedColor
+        )
+        icon.layoutParams.width = item.menuStyle.iconSize
+        icon.layoutParams.height = item.menuStyle.iconSize
+        icon.setBadgeColor(item.menuStyle.badgeColor)
         icon.setImageResource(item.icon)
         icon.setColorStateListAnimator(
             color = item.iconColor,
-            unselectedColor = item.unselectedColor,
-            disabledColor = item.disabledColor,
+            unselectedColor = item.menuStyle.unselectedColor,
             mode = item.tintMode
         )
         containerBackground.setTint(item.backgroundColor)
         containerForeground.setTint(Color.BLACK)
 
-        styleContainerForExpandedState()
+        styleContainerForCollapseState()
 
         container.setCustomRipple(containerBackground, containerForeground)
     }
 
+    override fun showBadge(count: Int) {
+        badgeCount = count
+        if (badgeCount > 0) {
+            countLabel.typeface = originalTypeFace
+            countLabel.text = badgeCount.toString()
+        } else {
+            countLabel.typeface = Typeface.DEFAULT
+            countLabel.text = BULLET.toString()
+        }
+
+        if (!isExpanded()) {
+            icon.showBadge(badgeCount)
+        }
+    }
+
+    override fun dismissBadge() {
+        badgeCount = -1
+        icon.dismissBadge()
+        countLabel.text = ""
+    }
+
     override fun setEnabled(enabled: Boolean) {
         super.setEnabled(enabled)
-
-        icon.jumpDrawablesToCurrentState()
-        title.jumpDrawablesToCurrentState()
 
         if (!enabled && isSelected) {
             isSelected = false
@@ -74,59 +109,79 @@ internal class VerticalMenuItemView(context: Context) : MenuItemView(context) {
 
     fun expand() {
         styleContainerForExpandedState()
+        if (badgeCount >= 0) {
+            icon.dismissBadge()
+        }
     }
 
     fun collapse() {
         styleContainerForCollapseState()
+        if (badgeCount >= 0) {
+            icon.showBadge(badgeCount)
+        }
     }
+
+    private fun isExpanded(): Boolean = title.visibility == View.VISIBLE
 
     private fun styleContainerForCollapseState() {
         title.visibility = View.GONE
-        containerForeground.cornerRadius = 1000f
-        container.updateLayoutParams<LayoutParams> { marginStart = doubleSpace }
+        countLabel.visibility = View.GONE
+        containerForeground.cornerRadius = radius
+        container.updateLayoutParams<MarginLayoutParams> { marginStart = doubleSpace }
+        icon.updateLayoutParams<MarginLayoutParams> {
+            marginStart = 0
+            marginEnd = 0
+        }
 
         if (isSelected) {
-            containerBackground.cornerAnimation(0f, 1000f)
+            containerBackground.cornerAnimation(0f, radius).start()
         } else {
-            containerBackground.cornerRadius = 1000f
-            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                container.setCustomRipple(containerBackground, containerForeground)
-            }
+            containerBackground.cornerRadius = radius
         }
     }
 
     private fun styleContainerForExpandedState() {
-        val cornerRadii = floatArrayOf(0f, 0f, 1000f, 1000f, 1000f, 1000f, 0f, 0f)
+        val cornerArray = if (layoutDirection == View.LAYOUT_DIRECTION_LTR) {
+            floatArrayOf(0f, 0f, radius, radius, radius, radius, 0f, 0f)
+        } else {
+            floatArrayOf(radius, radius, 0f, 0f, 0f, 0f, radius, radius)
+        }
+
+        title.alpha = 0f
         title.visibility = View.VISIBLE
-        container.updateLayoutParams<LayoutParams> { marginStart = 0 }
-        containerForeground.cornerRadii = cornerRadii
+        title.animate()
+            .alpha(1f)
+            .setStartDelay(200)
+            .start()
+
+        countLabel.visibility = View.VISIBLE
+        container.updateLayoutParams<MarginLayoutParams> { marginStart = 0 }
+        icon.updateLayoutParams<MarginLayoutParams> {
+            marginStart = doubleSpace
+            marginEnd = doubleSpace
+        }
+
+        containerForeground.cornerRadii = cornerArray
 
         if (isSelected) {
-            containerBackground.cornerAnimation(1000f, 0f)
+            containerBackground.cornerAnimation(radius, 0f).start()
         } else {
-            containerBackground.cornerRadii = cornerRadii
-            restoreRippleMaskForLegacy()
+            containerBackground.cornerRadii = cornerArray
         }
     }
 
-    private fun GradientDrawable.cornerAnimation(from: Float, to: Float) {
+    private fun GradientDrawable.cornerAnimation(from: Float, to: Float): Animator =
         ObjectAnimator.ofFloat(from, to).apply {
             addUpdateListener {
                 val corner = it.animatedValue as Float
-                cornerRadii =
-                    floatArrayOf(corner, corner, 1000f, 1000f, 1000f, 1000f, corner, corner)
+                val cornerArray = if (layoutDirection == View.LAYOUT_DIRECTION_LTR) {
+                    floatArrayOf(corner, corner, radius, radius, radius, radius, corner, corner)
+                } else {
+                    floatArrayOf(radius, radius, corner, corner, corner, corner, radius, radius)
+                }
+
+                cornerRadii = cornerArray
             }
-            onEndListener { restoreRippleMaskForLegacy() }
             duration = BACKGROUND_CORNER_ANIMATION_DURATION
-            start()
         }
-    }
-
-
-    private fun restoreRippleMaskForLegacy() {
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            container.setCustomRipple(containerBackground, containerForeground)
-        }
-    }
-
 }

@@ -3,7 +3,6 @@
 
     <declare-styleable name="ChipNavigationBar">
         <attr name="cnb_menuResource" format="reference" />
-        <attr name="cnb_hideOnScroll" format="boolean" />
         <attr name="cnb_minExpandedWidth" format="dimension" />
         <attr name="cnb_addBottomInset" format="boolean" />
         <attr name="cnb_addTopInset" format="boolean" />
@@ -13,12 +12,12 @@
             <enum name="horizontal" value="0" />
             <enum name="vertical" value="1" />
         </attr>
-    </declare-styleable>
 
-    <declare-styleable name="ChipMenu">
         <attr name="cnb_badgeColor" format="color" />
-        <attr name="cnb_disabledColor" format="color" />
         <attr name="cnb_unselectedColor" format="color" />
+        <attr name="cnb_radius" format="dimension" />
+        <attr name="cnb_textAppearance" format="reference" />
+        <attr name="cnb_iconSize" format="dimension" />
     </declare-styleable>
 
     <declare-styleable name="ChipMenuItem">

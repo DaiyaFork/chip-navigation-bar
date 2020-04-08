@@ -1,35 +1,45 @@
 package com.ismaeldivita.chipnavigation
 
 import android.content.Context
+import android.os.Bundle
+import android.os.Parcelable
 import android.util.AttributeSet
-import android.widget.LinearLayout
-import androidx.annotation.MenuRes
-import androidx.coordinatorlayout.widget.CoordinatorLayout
-import com.ismaeldivita.chipnavigation.behavior.HideOnScrollBehavior
-import com.ismaeldivita.chipnavigation.model.MenuParser
-import com.ismaeldivita.chipnavigation.util.getChildren
-import com.ismaeldivita.chipnavigation.view.HorizontalMenuItemView
+import android.view.Gravity
 import android.view.View
+import android.widget.LinearLayout
+import androidx.annotation.IntRange
+import androidx.annotation.MenuRes
+import androidx.core.content.ContextCompat
+import com.ismaeldivita.chipnavigation.model.MenuParser
+import com.ismaeldivita.chipnavigation.model.MenuStyle
 import com.ismaeldivita.chipnavigation.util.applyWindowInsets
 import com.ismaeldivita.chipnavigation.util.forEachChild
+import com.ismaeldivita.chipnavigation.util.getChildren
+import com.ismaeldivita.chipnavigation.util.getValueFromAttr
+import com.ismaeldivita.chipnavigation.view.HorizontalMenuItemView
 import com.ismaeldivita.chipnavigation.view.MenuItemView
 import com.ismaeldivita.chipnavigation.view.VerticalMenuItemView
 
 class ChipNavigationBar @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
-) : LinearLayout(context, attrs), CoordinatorLayout.AttachedBehavior {
+) : LinearLayout(context, attrs) {
 
     private lateinit var orientationMode: MenuOrientation
-    private val behavior: HideOnScrollBehavior
     private var listener: OnItemSelectedListener? = null
     private var minimumExpandedWidth: Int = 0
+    private var isExpanded: Boolean = false
+    private val menuStyle: MenuStyle
+
+    @MenuRes
+    private var menuRes = -1
+
+    private val badgesState = mutableMapOf<Int, Int>()
 
     init {
         val a = context.obtainStyledAttributes(attrs, R.styleable.ChipNavigationBar)
 
         val menuResource = a.getResourceId(R.styleable.ChipNavigationBar_cnb_menuResource, -1)
-        val hideOnScroll = a.getBoolean(R.styleable.ChipNavigationBar_cnb_hideOnScroll, false)
         val minExpanded = a.getDimension(R.styleable.ChipNavigationBar_cnb_minExpandedWidth, 0F)
         val leftInset = a.getBoolean(R.styleable.ChipNavigationBar_cnb_addLeftInset, false)
         val topInset = a.getBoolean(R.styleable.ChipNavigationBar_cnb_addTopInset, false)
@@ -41,20 +51,21 @@ class ChipNavigationBar @JvmOverloads constructor(
             else -> MenuOrientation.HORIZONTAL
         }
 
-        a.recycle()
+        menuStyle = MenuStyle(context, a)
 
-        behavior = HideOnScrollBehavior(context, attrs)
+        a.recycle()
         setMenuOrientation(orientation)
 
         if (menuResource >= 0) {
             setMenuResource(menuResource)
         }
+        if (orientationMode == MenuOrientation.HORIZONTAL) {
+            gravity = Gravity.CENTER_VERTICAL
+        }
 
         setMinimumExpandedWidth(minExpanded.toInt())
-        setHideOnScroll(hideOnScroll)
         applyWindowInsets(leftInset, topInset, rightInset, bottomInset)
         collapse()
-
         isClickable = true
     }
 
@@ -64,12 +75,10 @@ class ChipNavigationBar @JvmOverloads constructor(
      * @param menuRes Resource ID for an XML layout resource to load
      */
     fun setMenuResource(@MenuRes menuRes: Int) {
-        val menu = (MenuParser(context).parse(menuRes))
-        val childListener: (View) -> Unit = { view ->
-            val id = view.id
-            setItemSelected(id)
-            listener?.onItemSelected(id)
-        }
+        this.menuRes = menuRes
+
+        val menu = (MenuParser(context).parse(menuRes, menuStyle))
+        val childListener: (View) -> Unit = { view -> setItemSelected(view.id) }
 
         removeAllViews()
 
@@ -85,7 +94,7 @@ class ChipNavigationBar @JvmOverloads constructor(
     /**
      * Set the menu orientation
      *
-     * @param mode orientation
+     * @param menuOrientation orientation
      */
     fun setMenuOrientation(menuOrientation: MenuOrientation) {
         orientationMode = menuOrientation
@@ -93,7 +102,6 @@ class ChipNavigationBar @JvmOverloads constructor(
             MenuOrientation.HORIZONTAL -> HORIZONTAL
             MenuOrientation.VERTICAL -> VERTICAL
         }
-        setHideOnScroll(behavior.scrollEnabled)
     }
 
     /**
@@ -113,24 +121,21 @@ class ChipNavigationBar @JvmOverloads constructor(
      * This event will not be propagated to the current [OnItemSelectedListener]
      *
      * @param id menu item id
+     * @param dispatchAction enable this action to dispatch listener events
      */
-    fun setItemSelected(id: Int) {
+    fun setItemSelected(id: Int, dispatchAction: Boolean = true) {
         val selectedItem = getSelectedItem()
 
         if (selectedItem?.id != id) {
             selectedItem?.isSelected = false
-            getItemById(id)?.isSelected = true
-        }
-    }
+            getItemById(id)?.let {
+                it.isSelected = true
 
-    /**
-     * Set the enabled state for the hide on scroll [CoordinatorLayout.Behavior].
-     * The behavior is only active when orientation mode is HORIZONTAL
-     *
-     * @param isEnabled True if this view is enabled, false otherwise
-     */
-    fun setHideOnScroll(isEnabled: Boolean) {
-        behavior.scrollEnabled = isEnabled && orientationMode == MenuOrientation.HORIZONTAL
+                if (dispatchAction) {
+                    listener?.onItemSelected(id)
+                }
+            }
+        }
     }
 
     /**
@@ -140,28 +145,6 @@ class ChipNavigationBar @JvmOverloads constructor(
      */
     fun setMinimumExpandedWidth(minExpandedWidth: Int) {
         minimumExpandedWidth = minExpandedWidth
-    }
-
-    /**
-     * Set the duration of the enter animation for the hide on scroll [CoordinatorLayout.Behavior]
-     * Default value [HideOnScrollBehavior.DEFAULT_ENTER_DURATION]
-     * The behavior is only active when orientation orientationMode is HORIZONTAL
-     *
-     * @param duration animation duration in milliseconds
-     */
-    fun setEnterAnimationDuration(duration: Long) {
-        behavior.enterAnimationDuration = duration
-    }
-
-    /**
-     * Set the duration of the exit animation for the hide on scroll [CoordinatorLayout.Behavior]
-     * Default value [HideOnScrollBehavior.DEFAULT_EXIT_DURATION]
-     * The behavior is only active when orientation is HORIZONTAL
-     *
-     * @param duration animation duration in milliseconds
-     */
-    fun setExitAnimationDuration(duration: Long) {
-        behavior.exitAnimationDuration = duration
     }
 
     /**
@@ -187,27 +170,42 @@ class ChipNavigationBar @JvmOverloads constructor(
     }
 
     /**
-     * Show menu if the orientationMode is HORIZONTAL otherwise, do nothing
+     * Display a notification numberless badge for a menu item
+     *
+     * @param id menu item id
      */
-    fun show() {
-        if (orientationMode == MenuOrientation.HORIZONTAL) {
-            behavior.slideUp(this)
-        }
+    fun showBadge(id: Int) {
+        badgesState[id] = 0
+        getItemById(id)?.showBadge()
     }
 
     /**
-     * Hide menu if the orientationMode is HORIZONTAL otherwise, do nothing
+     * Display a notification badge with a counter for a menu item
+     * The maximum digits length to be displayed is 2 otherwise "+99" will be displayed
+     *
+     * @param id menu item id
      */
-    fun hide() {
-        if (orientationMode == MenuOrientation.HORIZONTAL) {
-            behavior.slideDown(this)
-        }
+    fun showBadge(id: Int, @IntRange(from = 1) count: Int) {
+        badgesState[id] = count
+        getItemById(id)?.showBadge(count)
+    }
+
+    /**
+     * Dismiss the displayed badge for a menu item
+     *
+     * @param id menu item id
+     */
+    fun dismissBadge(id: Int) {
+        badgesState.remove(id)
+        getItemById(id)?.dismissBadge()
     }
 
     /**
      * Collapse the menu items if orientationMode is VERTICAL otherwise, do nothing
      */
     fun collapse() {
+        isExpanded = false
+
         if (orientationMode == MenuOrientation.VERTICAL) {
             forEachChild {
                 it.minimumWidth = 0
@@ -220,12 +218,24 @@ class ChipNavigationBar @JvmOverloads constructor(
      * Expand the menu items if orientationMode is VERTICAL otherwise, do nothing
      */
     fun expand() {
+        isExpanded = true
+
         if (orientationMode == MenuOrientation.VERTICAL) {
             forEachChild {
                 it.minimumWidth = minimumExpandedWidth
                 (it as? VerticalMenuItemView)?.expand()
             }
         }
+    }
+
+    /**
+     * Return a boolean if the menu is expanded on the VERTICAL orientationMode.
+     *
+     * @return true if expanded
+     */
+    fun isExpanded(): Boolean = when (orientationMode) {
+        MenuOrientation.VERTICAL -> isExpanded
+        MenuOrientation.HORIZONTAL -> false
     }
 
     /**
@@ -248,7 +258,9 @@ class ChipNavigationBar @JvmOverloads constructor(
      * @param id menu item id
      * @return the menu item view or null if the id was not found
      */
-    private fun getItemById(id: Int) = getChildren().firstOrNull { it.id == id }
+    private fun getItemById(id: Int) = getChildren()
+        .filterIsInstance<MenuItemView>()
+        .firstOrNull { it.id == id }
 
     /**
      * Create a menu item view based on the menu orientationMode
@@ -260,7 +272,37 @@ class ChipNavigationBar @JvmOverloads constructor(
         MenuOrientation.VERTICAL -> VerticalMenuItemView(context)
     }
 
-    override fun getBehavior(): CoordinatorLayout.Behavior<*> = behavior
+
+    override fun onSaveInstanceState(): Parcelable? {
+        val superState = super.onSaveInstanceState()
+        return State(superState, Bundle()).apply {
+            menuId = menuRes
+            selectedItem = getSelectedItemId()
+            badges = badgesState
+            expanded = isExpanded
+        }
+    }
+
+    override fun onRestoreInstanceState(state: Parcelable?) {
+        when (state) {
+            is State -> {
+                super.onRestoreInstanceState(state.superState)
+
+                if (state.menuId != -1) setMenuResource(state.menuId)
+                if (state.selectedItem != -1) setItemSelected(state.selectedItem, false)
+                if (state.expanded) expand() else collapse()
+
+                state.badges.forEach { (itemId, count) ->
+                    if (count > 0) {
+                        showBadge(itemId, count)
+                    } else {
+                        showBadge(itemId)
+                    }
+                }
+            }
+            else -> super.onRestoreInstanceState(state)
+        }
+    }
 
     /**
      * Interface definition for a callback to be invoked when a menu item is selected
